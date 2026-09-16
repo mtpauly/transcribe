@@ -12,7 +12,20 @@ from dotenv import load_dotenv
 import base64
 import os
 
+if sys.platform == "darwin":
+    from Quartz import (
+        CGEventGetFlags,
+        CGEventGetIntegerValueField,
+        kCGEventFlagMaskAlternate,
+        kCGEventKeyDown,
+        kCGEventKeyUp,
+        kCGKeyboardEventKeycode,
+    )
+
 filename = "./recordings/out_full.wav"
+
+# macOS virtual key code for the space bar.
+SPACE_KEYCODE = 49
 
 load_dotenv()
 api_key = os.environ["OPENROUTER_API_KEY"]
@@ -25,6 +38,33 @@ class ListenerState(Enum):
 state = ListenerState.IDLE
 
 data_queue = queue.Queue()
+
+
+def make_hotkey_interceptor():
+    """Consume Option+Space while allowing all other key events through."""
+    suppressing_space = False
+
+    def intercept(event_type, event):
+        nonlocal suppressing_space
+
+        keycode = CGEventGetIntegerValueField(
+            event,
+            kCGKeyboardEventKeycode,
+        )
+        if keycode != SPACE_KEYCODE:
+            return event
+
+        if event_type == kCGEventKeyDown:
+            if CGEventGetFlags(event) & kCGEventFlagMaskAlternate:
+                suppressing_space = True
+                return None
+        elif event_type == kCGEventKeyUp and suppressing_space:
+            suppressing_space = False
+            return None
+
+        return event
+
+    return intercept
 
 # Called while recording when the 
 # TODO: is this necessary? maybe it buffers the data internally?
@@ -154,8 +194,13 @@ if __name__ == '__main__':
 
     # Start key listener
     try:
+        listener_options = {}
+        if sys.platform == "darwin":
+            listener_options["darwin_intercept"] = make_hotkey_interceptor()
+
         with keyboard.GlobalHotKeys(
             {"<alt>+<space>": on_activate},
+            **listener_options,
         ) as h:
             h.join()
     except KeyboardInterrupt:
