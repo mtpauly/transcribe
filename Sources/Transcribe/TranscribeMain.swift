@@ -62,7 +62,8 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
       let platform = MacPlatform()
       let client = OpenRouterClient(
         apiKey: configuration.openRouterAPIKey,
-        model: configuration.model
+        model: configuration.model,
+        log: logger.write
       )
       let archive = configuration.recordingsDirectory.map {
         DirectoryRecordingArchive(directory: $0, log: logger.write)
