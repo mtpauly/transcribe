@@ -1,10 +1,16 @@
 import Foundation
 
+/// Finalized audio held in memory, e.g. a WAV file's bytes with format "wav".
+struct Recording: Sendable, Equatable {
+  let audio: Data
+  let format: String
+}
+
 @MainActor
 protocol TranscriptionPlatform: AnyObject {
   /// Starts recording and returns the name of the input device in use, if known.
-  func startRecording(at url: URL) async throws -> String?
-  func stopRecording() throws
+  func startRecording() async throws -> String?
+  func stopRecording() throws -> Recording
   func paste(_ text: String) throws
   func recordingStarted()
   func recordingStopped()
@@ -25,16 +31,18 @@ final class Coordinator {
 
   private let platform: any TranscriptionPlatform
   private let transcriber: any Transcriber
+  private let archive: (any RecordingArchive)?
   private let log: @Sendable (String) -> Void
-  private var recordingURL: URL?
 
   init(
     platform: any TranscriptionPlatform,
     transcriber: any Transcriber,
+    archive: (any RecordingArchive)? = nil,
     log: @escaping @Sendable (String) -> Void = { _ in }
   ) {
     self.platform = platform
     self.transcriber = transcriber
+    self.archive = archive
     self.log = log
   }
 
@@ -53,68 +61,53 @@ final class Coordinator {
   func shutdown() {
     if state == .recording {
       do {
-        try platform.stopRecording()
+        _ = try platform.stopRecording()
       } catch {
         log("error stopping recording during shutdown: \(error.localizedDescription)")
       }
     }
-    removeRecording()
-    reset()
+    state = .idle
   }
 
   private func startRecording() async {
     state = .starting
-    let url = FileManager.default.temporaryDirectory
-      .appendingPathComponent("transcribe-\(UUID().uuidString)")
-      .appendingPathExtension("wav")
-
     do {
-      let device = try await platform.startRecording(at: url)
-      recordingURL = url
+      let device = try await platform.startRecording()
       state = .recording
-      log("recording started on \(device ?? "unknown input device"): \(url.path)")
+      log("recording started on \(device ?? "unknown input device")")
       platform.recordingStarted()
     } catch {
-      try? FileManager.default.removeItem(at: url)
-      reset()
+      state = .idle
       reportFailure("start recording", error: error)
     }
   }
 
   private func stopAndTranscribe() async {
-    guard let url = recordingURL else {
-      reset()
-      reportFailure("stop recording", error: CoordinatorError.missingRecording)
-      return
-    }
-
+    let recording: Recording
     do {
-      try platform.stopRecording()
+      recording = try platform.stopRecording()
     } catch {
-      removeRecording()
-      reset()
+      state = .idle
       reportFailure("stop recording", error: error)
       return
     }
 
     state = .transcribing
-    log("recording stopped; transcription started")
+    log("recording stopped (\(recording.audio.count / 1024) KB); transcription started")
     platform.recordingStopped()
+    archive?.save(recording)
 
     do {
-      let text = try await transcriber.transcribe(fileAt: url)
+      let text = try await transcriber.transcribe(recording)
       guard state == .transcribing else {
-        removeRecording()
         return
       }
       log("transcribed text: \(text)")
       try platform.paste(text)
       log("transcription pasted")
-      removeRecording()
-      reset()
+      state = .idle
     } catch {
-      removeRecording()
-      reset()
+      state = .idle
       reportFailure("transcribe recording", error: error)
     }
   }
@@ -122,26 +115,5 @@ final class Coordinator {
   private func reportFailure(_ operation: String, error: any Error) {
     log("error: \(operation): \(error.localizedDescription)")
     platform.failed()
-  }
-
-  private func removeRecording() {
-    guard let recordingURL else {
-      return
-    }
-    try? FileManager.default.removeItem(at: recordingURL)
-    self.recordingURL = nil
-  }
-
-  private func reset() {
-    state = .idle
-    recordingURL = nil
-  }
-}
-
-private enum CoordinatorError: LocalizedError {
-  case missingRecording
-
-  var errorDescription: String? {
-    "The current recording path is missing"
   }
 }

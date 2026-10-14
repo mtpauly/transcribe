@@ -7,38 +7,32 @@ import Foundation
 
 @MainActor
 final class MacPlatform: NSObject, TranscriptionPlatform {
-  private var recorder: AVAudioRecorder?
+  private var capture: AudioCapture?
 
-  func startRecording(at url: URL) async throws -> String? {
-    guard recorder == nil else {
+  func startRecording() async throws -> String? {
+    guard capture == nil else {
       throw PlatformError.recordingAlreadyActive
     }
     guard await microphoneAuthorized() else {
       throw PlatformError.microphoneDenied
     }
 
-    let settings: [String: Any] = [
-      AVFormatIDKey: Int(kAudioFormatLinearPCM),
-      AVSampleRateKey: 16_000,
-      AVNumberOfChannelsKey: 1,
-      AVLinearPCMBitDepthKey: 16,
-      AVLinearPCMIsBigEndianKey: false,
-      AVLinearPCMIsFloatKey: false,
-    ]
-    let recorder = try AVAudioRecorder(url: url, settings: settings)
-    guard recorder.prepareToRecord(), recorder.record() else {
-      throw PlatformError.couldNotStartRecording
-    }
-    self.recorder = recorder
+    let capture = AudioCapture()
+    try capture.start()
+    self.capture = capture
     return defaultInputDeviceName()
   }
 
-  func stopRecording() throws {
-    guard let recorder else {
+  func stopRecording() throws -> Recording {
+    guard let capture else {
       throw PlatformError.noActiveRecording
     }
-    recorder.stop()
-    self.recorder = nil
+    self.capture = nil
+    let samples = capture.stop()
+    return Recording(
+      audio: WAV.encode(pcm16Mono: samples, sampleRate: AudioCapture.sampleRate),
+      format: "wav"
+    )
   }
 
   func paste(_ text: String) throws {
@@ -79,7 +73,7 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
     }
   }
 
-  /// AVAudioRecorder records from the system default input, so report that device.
+  /// AVAudioEngine records from the system default input, so report that device.
   private func defaultInputDeviceName() -> String? {
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioHardwarePropertyDefaultInputDevice,
@@ -146,7 +140,6 @@ enum AccessibilityPermission {
 private enum PlatformError: LocalizedError {
   case recordingAlreadyActive
   case microphoneDenied
-  case couldNotStartRecording
   case noActiveRecording
   case couldNotWritePasteboard
   case couldNotCreatePasteEvents
@@ -157,8 +150,6 @@ private enum PlatformError: LocalizedError {
       return "A recording is already active"
     case .microphoneDenied:
       return "Microphone access is denied in System Settings"
-    case .couldNotStartRecording:
-      return "AVAudioRecorder could not start recording"
     case .noActiveRecording:
       return "No recording is active"
     case .couldNotWritePasteboard:

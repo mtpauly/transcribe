@@ -64,9 +64,16 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         apiKey: configuration.openRouterAPIKey,
         model: configuration.model
       )
+      let archive = configuration.recordingsDirectory.map {
+        DirectoryRecordingArchive(directory: $0, log: logger.write)
+      }
+      if let archive {
+        logger.write("saving recordings to \(archive.directory.path)")
+      }
       let coordinator = Coordinator(
         platform: platform,
         transcriber: client,
+        archive: archive,
         log: logger.write
       )
       let monitor = HotkeyMonitor {

@@ -1,7 +1,7 @@
 import Foundation
 
 protocol Transcriber: Sendable {
-  func transcribe(fileAt url: URL) async throws -> String
+  func transcribe(_ recording: Recording) async throws -> String
 }
 
 struct OpenRouterClient: Transcriber {
@@ -17,20 +17,8 @@ struct OpenRouterClient: Transcriber {
     self.model = model
   }
 
-  func transcribe(fileAt url: URL) async throws -> String {
-    let audio: Data
-    do {
-      audio = try Data(contentsOf: url)
-    } catch {
-      throw OpenRouterError.couldNotReadRecording(error)
-    }
-
-    let format = url.pathExtension.lowercased()
-    guard !format.isEmpty else {
-      throw OpenRouterError.missingFileExtension(url)
-    }
-
-    let request = try makeRequest(audio: audio, format: format)
+  func transcribe(_ recording: Recording) async throws -> String {
+    let request = try makeRequest(audio: recording.audio, format: recording.format)
     let (data, response) = try await URLSession.shared.data(for: request)
     guard let response = response as? HTTPURLResponse else {
       throw OpenRouterError.nonHTTPResponse
@@ -74,8 +62,6 @@ struct OpenRouterClient: Transcriber {
 }
 
 enum OpenRouterError: LocalizedError {
-  case couldNotReadRecording(any Error)
-  case missingFileExtension(URL)
   case nonHTTPResponse
   case requestFailed(status: Int, detail: String)
   case invalidResponse(any Error)
@@ -83,10 +69,6 @@ enum OpenRouterError: LocalizedError {
 
   var errorDescription: String? {
     switch self {
-    case .couldNotReadRecording(let error):
-      return "Could not read recording: \(error.localizedDescription)"
-    case .missingFileExtension(let url):
-      return "Recording has no file extension: \(url.path)"
     case .nonHTTPResponse:
       return "OpenRouter returned a non-HTTP response"
     case .requestFailed(let status, let detail):

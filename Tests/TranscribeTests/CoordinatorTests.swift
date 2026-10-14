@@ -14,14 +14,32 @@ struct CoordinatorTests {
 
     await coordinator.toggle()
     #expect(coordinator.state == .recording)
-    #expect(platform.startedURLs.count == 1)
+    #expect(platform.startCount == 1)
     #expect(platform.startedCueCount == 1)
 
     await coordinator.toggle()
     #expect(coordinator.state == .idle)
     #expect(platform.stopCount == 1)
     #expect(platform.stoppedCueCount == 1)
+    #expect(transcriber.received.recordings == [FakePlatform.recording])
     #expect(platform.pastedTexts == ["hello world"])
+  }
+
+  @Test("archives the recording even when transcription fails")
+  func archivesRecording() async {
+    let platform = FakePlatform()
+    let archive = FakeArchive()
+    let coordinator = Coordinator(
+      platform: platform,
+      transcriber: StubTranscriber(error: StubError.failed),
+      archive: archive
+    )
+
+    await coordinator.toggle()
+    #expect(archive.saved.recordings.isEmpty)
+
+    await coordinator.toggle()
+    #expect(archive.saved.recordings == [FakePlatform.recording])
   }
 
   @Test("returns to idle after transcription failure")
@@ -44,7 +62,9 @@ struct CoordinatorTests {
 
 @MainActor
 private final class FakePlatform: TranscriptionPlatform {
-  var startedURLs: [URL] = []
+  static let recording = Recording(audio: Data("audio".utf8), format: "wav")
+
+  var startCount = 0
   var stopCount = 0
   var pastedTexts: [String] = []
   var startedCueCount = 0
@@ -52,13 +72,14 @@ private final class FakePlatform: TranscriptionPlatform {
   var busyCount = 0
   var failedCount = 0
 
-  func startRecording(at url: URL) async throws -> String? {
-    startedURLs.append(url)
+  func startRecording() async throws -> String? {
+    startCount += 1
     return nil
   }
 
-  func stopRecording() throws {
+  func stopRecording() throws -> Recording {
     stopCount += 1
+    return Self.recording
   }
 
   func paste(_ text: String) throws {
@@ -71,9 +92,35 @@ private final class FakePlatform: TranscriptionPlatform {
   func failed() { failedCount += 1 }
 }
 
+private final class RecordingLog: @unchecked Sendable {
+  private let lock = NSLock()
+  private var items: [Recording] = []
+
+  var recordings: [Recording] {
+    lock.lock()
+    defer { lock.unlock() }
+    return items
+  }
+
+  func append(_ recording: Recording) {
+    lock.lock()
+    defer { lock.unlock() }
+    items.append(recording)
+  }
+}
+
+private struct FakeArchive: RecordingArchive {
+  let saved = RecordingLog()
+
+  func save(_ recording: Recording) {
+    saved.append(recording)
+  }
+}
+
 private struct StubTranscriber: Transcriber {
   let text: String?
   let error: StubError?
+  let received = RecordingLog()
 
   init(text: String) {
     self.text = text
@@ -85,7 +132,8 @@ private struct StubTranscriber: Transcriber {
     self.error = error
   }
 
-  func transcribe(fileAt url: URL) async throws -> String {
+  func transcribe(_ recording: Recording) async throws -> String {
+    received.append(recording)
     if let error {
       throw error
     }

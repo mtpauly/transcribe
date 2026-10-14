@@ -5,6 +5,8 @@ struct Configuration: Sendable, Equatable {
 
   let openRouterAPIKey: String
   let model: String
+  /// Where to save each recording; nil when saving is disabled.
+  let recordingsDirectory: URL?
 
   static func defaultURL(fileManager: FileManager = .default) throws -> URL {
     let applicationSupport = try fileManager.url(
@@ -35,9 +37,23 @@ struct Configuration: Sendable, Equatable {
       throw ConfigurationError.missingAPIKey(url)
     }
 
+    var recordingsDirectory: URL?
+    if fileConfiguration.saveRecordings == true {
+      if let path = nonempty(fileConfiguration.recordingsDirectory) {
+        recordingsDirectory = URL(
+          fileURLWithPath: (path as NSString).expandingTildeInPath,
+          isDirectory: true
+        )
+      } else {
+        recordingsDirectory = url.deletingLastPathComponent()
+          .appendingPathComponent("recordings", isDirectory: true)
+      }
+    }
+
     return Configuration(
       openRouterAPIKey: apiKey,
-      model: nonempty(fileConfiguration.model) ?? defaultModel
+      model: nonempty(fileConfiguration.model) ?? defaultModel,
+      recordingsDirectory: recordingsDirectory
     )
   }
 }
@@ -59,10 +75,14 @@ enum ConfigurationError: LocalizedError {
 private struct FileConfiguration: Decodable {
   var openRouterAPIKey: String?
   var model: String?
+  var saveRecordings: Bool?
+  var recordingsDirectory: String?
 
   enum CodingKeys: String, CodingKey {
     case openRouterAPIKey = "openrouter_api_key"
     case model
+    case saveRecordings = "save_recordings"
+    case recordingsDirectory = "recordings_directory"
   }
 }
 

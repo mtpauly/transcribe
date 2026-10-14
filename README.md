@@ -4,7 +4,7 @@ This repository contains a small native macOS application built with Swift Packa
 
 1. Press Option+Space to begin recording.
 2. Press Option+Space again to stop.
-3. The app sends the WAV file to OpenRouter.
+3. The app sends the recorded audio, held in memory as WAV, to OpenRouter.
 4. The resulting text is pasted into the focused application.
 
 The app has no Dock icon, window, menu-bar item, helper, LaunchAgent, login item, or installer. It runs as one signed process and uses short system sounds for recording and error feedback.
@@ -28,6 +28,8 @@ install -m 600 config.example.json "$HOME/Library/Application Support/Transcribe
 ```
 
 Then edit `config.json` and replace `replace-me` with the API key. The optional `model` field selects the OpenRouter transcription model.
+
+Set `"save_recordings": true` to keep a copy of every recording as a WAV file. Files go to `~/Library/Application Support/Transcribe/recordings/` unless `recordings_directory` names another folder (`~` is expanded). A recording is saved as soon as it stops, so it is kept even when transcription fails. Saved recordings are never deleted automatically.
 
 ## Build and run
 

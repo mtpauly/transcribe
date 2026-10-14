@@ -1,4 +1,5 @@
 {
   "openrouter_api_key": "replace-me",
-  "model": "microsoft/mai-transcribe-2"
+  "model": "microsoft/mai-transcribe-2",
+  "save_recordings": false
 }
