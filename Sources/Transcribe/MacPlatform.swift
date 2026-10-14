@@ -37,11 +37,32 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
 
   func paste(_ text: String) throws {
     let pasteboard = NSPasteboard.general
+    let savedItems = snapshot(of: pasteboard)
+
+    // Mark the text as transient so clipboard managers skip it.
+    let item = NSPasteboardItem()
+    item.setString(text, forType: .string)
+    item.setData(Data(), forType: Self.transientType)
     pasteboard.clearContents()
-    guard pasteboard.setString(text, forType: .string) else {
+    guard pasteboard.writeObjects([item]) else {
       throw PlatformError.couldNotWritePasteboard
     }
+    let changeCount = pasteboard.changeCount
+
     try postPasteShortcut()
+
+    // The target app reads the pasteboard when it handles Command-V, so restore the user's
+    // clipboard only after it has had time to do so, and only if nothing else wrote to it since.
+    Task { @MainActor in
+      try? await Task.sleep(for: Self.restoreDelay)
+      guard pasteboard.changeCount == changeCount else {
+        return
+      }
+      pasteboard.clearContents()
+      if !savedItems.isEmpty {
+        pasteboard.writeObjects(savedItems)
+      }
+    }
   }
 
   func recordingStarted() {
@@ -101,6 +122,22 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
       return nil
     }
     return name.takeRetainedValue() as String
+  }
+
+  private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+  private static let restoreDelay: Duration = .milliseconds(500)
+
+  /// Copies every item's data so it survives `clearContents()`.
+  private func snapshot(of pasteboard: NSPasteboard) -> [NSPasteboardItem] {
+    (pasteboard.pasteboardItems ?? []).map { item in
+      let copy = NSPasteboardItem()
+      for type in item.types {
+        if let data = item.data(forType: type) {
+          copy.setData(data, forType: type)
+        }
+      }
+      return copy
+    }
   }
 
   private func postPasteShortcut() throws {
