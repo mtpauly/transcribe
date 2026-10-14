@@ -2,7 +2,8 @@ import Foundation
 
 @MainActor
 protocol TranscriptionPlatform: AnyObject {
-  func startRecording(at url: URL) async throws
+  /// Starts recording and returns the name of the input device in use, if known.
+  func startRecording(at url: URL) async throws -> String?
   func stopRecording() throws
   func paste(_ text: String) throws
   func recordingStarted()
@@ -68,10 +69,10 @@ final class Coordinator {
       .appendingPathExtension("wav")
 
     do {
-      try await platform.startRecording(at: url)
+      let device = try await platform.startRecording(at: url)
       recordingURL = url
       state = .recording
-      log("recording started: \(url.path)")
+      log("recording started on \(device ?? "unknown input device"): \(url.path)")
       platform.recordingStarted()
     } catch {
       try? FileManager.default.removeItem(at: url)
@@ -106,6 +107,7 @@ final class Coordinator {
         removeRecording()
         return
       }
+      log("transcribed text: \(text)")
       try platform.paste(text)
       log("transcription pasted")
       removeRecording()

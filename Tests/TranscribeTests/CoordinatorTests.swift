@@ -52,8 +52,9 @@ private final class FakePlatform: TranscriptionPlatform {
   var busyCount = 0
   var failedCount = 0
 
-  func startRecording(at url: URL) async throws {
+  func startRecording(at url: URL) async throws -> String? {
     startedURLs.append(url)
+    return nil
   }
 
   func stopRecording() throws {

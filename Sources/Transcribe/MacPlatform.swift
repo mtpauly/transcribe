@@ -4,11 +4,12 @@ import AppKit
 import CoreGraphics
 import Foundation
 
+
 @MainActor
 final class MacPlatform: NSObject, TranscriptionPlatform {
   private var recorder: AVAudioRecorder?
 
-  func startRecording(at url: URL) async throws {
+  func startRecording(at url: URL) async throws -> String? {
     guard recorder == nil else {
       throw PlatformError.recordingAlreadyActive
     }
@@ -29,6 +30,7 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
       throw PlatformError.couldNotStartRecording
     }
     self.recorder = recorder
+    return defaultInputDeviceName()
   }
 
   func stopRecording() throws {
@@ -75,6 +77,36 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
     @unknown default:
       return false
     }
+  }
+
+  /// AVAudioRecorder records from the system default input, so report that device.
+  private func defaultInputDeviceName() -> String? {
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioHardwarePropertyDefaultInputDevice,
+      mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain
+    )
+    var deviceID = AudioDeviceID(kAudioObjectUnknown)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard
+      AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
+      ) == noErr,
+      deviceID != kAudioObjectUnknown
+    else {
+      return nil
+    }
+
+    address.mSelector = kAudioObjectPropertyName
+    var name: Unmanaged<CFString>?
+    size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+    guard
+      AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name) == noErr,
+      let name
+    else {
+      return nil
+    }
+    return name.takeRetainedValue() as String
   }
 
   private func postPasteShortcut() throws {
