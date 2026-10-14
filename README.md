@@ -7,6 +7,10 @@ This repository contains a small native macOS application built with Swift Packa
 3. The app sends the recorded audio, held in memory as WAV, to OpenRouter.
 4. The resulting text is pasted into the focused application.
 
+Press Escape while recording or waiting on OpenRouter to cancel; nothing is pasted. Escape passes through to other apps at all other times.
+
+Press Option+Shift+V to paste the most recent transcript again. It is kept in memory only, so it is gone after the app quits.
+
 The app has no Dock icon, window, menu-bar item, helper, LaunchAgent, login item, or installer. It runs as one signed process and uses short system sounds for recording and error feedback.
 
 ## Requirements
@@ -80,7 +84,7 @@ make logs
 - `bundle`: application metadata and the Hardened Runtime audio-input entitlement
 - `Makefile`: builds the SwiftPM executable, assembles the `.app`, and signs it
 
-The keyboard event-tap callback only recognizes and consumes Option+Space before scheduling the workflow on the main actor. It performs no audio, file, pasteboard, or network work.
+The keyboard event-tap callback only recognizes and consumes Option+Space, Option+Shift+V, and Escape while a recording or transcription is in progress, before scheduling the workflow on the main actor. It performs no audio, file, pasteboard, or network work.
 
 The executable initializes `NSApplication` even though no interface is displayed. A future `NSStatusItem` menu can therefore be added without changing the coordinator architecture.
 

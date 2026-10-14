@@ -4,14 +4,32 @@ import Foundation
 
 final class HotkeyMonitor: @unchecked Sendable {
   private static let spaceKeyCode: CGKeyCode = 49
+  private static let escapeKeyCode: CGKeyCode = 53
+  private static let vKeyCode: CGKeyCode = 9
+  private static let modifierMask: CGEventFlags = [
+    .maskCommand, .maskAlternate, .maskControl, .maskShift,
+  ]
 
   private let onToggle: @Sendable () -> Void
+  private let onCancel: @Sendable () -> Void
+  private let onPasteLast: @Sendable () -> Void
+  private let canCancel: @Sendable () -> Bool
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var suppressingSpace = false
+  /// Keys whose press was consumed, so their repeats and key-up are consumed too.
+  private var suppressedKeys: Set<CGKeyCode> = []
 
-  init(onToggle: @escaping @Sendable () -> Void) {
+  /// `canCancel` is called on the event tap's thread (the main run loop) and must be fast.
+  init(
+    onToggle: @escaping @Sendable () -> Void,
+    onCancel: @escaping @Sendable () -> Void,
+    onPasteLast: @escaping @Sendable () -> Void,
+    canCancel: @escaping @Sendable () -> Bool
+  ) {
     self.onToggle = onToggle
+    self.onCancel = onCancel
+    self.onPasteLast = onPasteLast
+    self.canCancel = canCancel
   }
 
   func install() throws {
@@ -50,7 +68,7 @@ final class HotkeyMonitor: @unchecked Sendable {
 
   fileprivate func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-      suppressingSpace = false
+      suppressedKeys.removeAll()
       if let eventTap {
         CGEvent.tapEnable(tap: eventTap, enable: true)
       }
@@ -58,25 +76,39 @@ final class HotkeyMonitor: @unchecked Sendable {
     }
 
     let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-    guard keyCode == Self.spaceKeyCode else {
+    let modifiers = event.flags.intersection(Self.modifierMask)
+
+    if type == .keyUp {
+      return suppressedKeys.remove(keyCode) == nil ? Unmanaged.passUnretained(event) : nil
+    }
+    guard type == .keyDown else {
       return Unmanaged.passUnretained(event)
     }
 
-    if type == .keyDown, event.flags.contains(.maskAlternate) {
-      let firstPress = !suppressingSpace
-      suppressingSpace = true
-      if firstPress {
+    switch keyCode {
+    case Self.spaceKeyCode where modifiers == .maskAlternate:
+      if suppressedKeys.insert(keyCode).inserted {
         onToggle()
       }
       return nil
-    }
-
-    if type == .keyUp, suppressingSpace {
-      suppressingSpace = false
+    case Self.vKeyCode where modifiers == [.maskAlternate, .maskShift]:
+      if suppressedKeys.insert(keyCode).inserted {
+        onPasteLast()
+      }
       return nil
+    case Self.escapeKeyCode where modifiers.isEmpty:
+      if suppressedKeys.contains(keyCode) {
+        return nil
+      }
+      guard canCancel() else {
+        return Unmanaged.passUnretained(event)
+      }
+      suppressedKeys.insert(keyCode)
+      onCancel()
+      return nil
+    default:
+      return Unmanaged.passUnretained(event)
     }
-
-    return Unmanaged.passUnretained(event)
   }
 
   deinit {

@@ -14,6 +14,7 @@ protocol TranscriptionPlatform: AnyObject {
   func paste(_ text: String) throws
   func recordingStarted()
   func recordingStopped()
+  func recordingCancelled()
   func busy()
   func failed()
 }
@@ -28,6 +29,13 @@ final class Coordinator {
   }
 
   private(set) var state: State = .idle
+  private var transcription: Task<String, any Error>?
+  private(set) var lastTranscript: String?
+
+  /// Whether Escape should cancel: while recording or waiting on a transcription.
+  var isCancellable: Bool {
+    state == .recording || state == .transcribing
+  }
 
   private let platform: any TranscriptionPlatform
   private let transcriber: any Transcriber
@@ -58,7 +66,43 @@ final class Coordinator {
     }
   }
 
+  func cancel() {
+    switch state {
+    case .recording:
+      do {
+        _ = try platform.stopRecording()
+      } catch {
+        log("error stopping recording during cancel: \(error.localizedDescription)")
+      }
+      log("recording cancelled")
+    case .transcribing:
+      transcription?.cancel()
+      transcription = nil
+      log("transcription cancelled")
+    case .idle, .starting:
+      return
+    }
+    state = .idle
+    platform.recordingCancelled()
+  }
+
+  func pasteLastTranscript() {
+    guard let lastTranscript else {
+      log("no transcript to paste yet")
+      platform.failed()
+      return
+    }
+    do {
+      try platform.paste(lastTranscript)
+      log("last transcript pasted")
+    } catch {
+      reportFailure("paste last transcript", error: error)
+    }
+  }
+
   func shutdown() {
+    transcription?.cancel()
+    transcription = nil
     if state == .recording {
       do {
         _ = try platform.stopRecording()
@@ -97,16 +141,26 @@ final class Coordinator {
     platform.recordingStopped()
     archive?.save(recording)
 
+    let transcriber = transcriber
+    let task = Task { try await transcriber.transcribe(recording) }
+    transcription = task
     do {
-      let text = try await transcriber.transcribe(recording)
-      guard state == .transcribing else {
+      let text = try await task.value
+      // Cancelled or superseded while waiting; drop the result.
+      guard transcription == task else {
         return
       }
+      transcription = nil
+      lastTranscript = text
       log("transcribed text: \(text)")
       try platform.paste(text)
       log("transcription pasted")
       state = .idle
     } catch {
+      guard transcription == task else {
+        return
+      }
+      transcription = nil
       state = .idle
       reportFailure("transcribe recording", error: error)
     }

@@ -76,17 +76,33 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         archive: archive,
         log: logger.write
       )
-      let monitor = HotkeyMonitor {
-        Task { @MainActor in
-          await coordinator.toggle()
+      let monitor = HotkeyMonitor(
+        onToggle: {
+          Task { @MainActor in
+            await coordinator.toggle()
+          }
+        },
+        onCancel: {
+          Task { @MainActor in
+            coordinator.cancel()
+          }
+        },
+        onPasteLast: {
+          Task { @MainActor in
+            coordinator.pasteLastTranscript()
+          }
+        },
+        canCancel: {
+          // The event tap runs on the main run loop.
+          MainActor.assumeIsolated { coordinator.isCancellable }
         }
-      }
+      )
       try monitor.install()
 
       self.coordinator = coordinator
       hotkeyMonitor = monitor
       logger.write(
-        "ready; press Option+Space to start or stop recording (pid \(ProcessInfo.processInfo.processIdentifier))"
+        "ready; press Option+Space to start or stop recording, Escape to cancel, Option+Shift+V to paste the last transcript (pid \(ProcessInfo.processInfo.processIdentifier))"
       )
     } catch {
       logger.write("fatal error: \(error.localizedDescription)")

@@ -58,6 +58,93 @@ struct CoordinatorTests {
     #expect(coordinator.state == .recording)
     coordinator.shutdown()
   }
+
+  @Test("cancelling a recording discards it without transcribing")
+  func cancelRecording() async {
+    let platform = FakePlatform()
+    let transcriber = StubTranscriber(text: "unused")
+    let archive = FakeArchive()
+    let coordinator = Coordinator(
+      platform: platform,
+      transcriber: transcriber,
+      archive: archive
+    )
+
+    await coordinator.toggle()
+    #expect(coordinator.isCancellable)
+    coordinator.cancel()
+
+    #expect(coordinator.state == .idle)
+    #expect(!coordinator.isCancellable)
+    #expect(platform.stopCount == 1)
+    #expect(platform.cancelledCueCount == 1)
+    #expect(transcriber.received.recordings.isEmpty)
+    #expect(archive.saved.recordings.isEmpty)
+  }
+
+  @Test("cancelling a pending transcription skips the paste")
+  func cancelTranscription() async {
+    let platform = FakePlatform()
+    let coordinator = Coordinator(platform: platform, transcriber: HangingTranscriber())
+
+    await coordinator.toggle()
+    let stopping = Task { await coordinator.toggle() }
+    while coordinator.state != .transcribing {
+      await Task.yield()
+    }
+    #expect(coordinator.isCancellable)
+    coordinator.cancel()
+    await stopping.value
+
+    #expect(coordinator.state == .idle)
+    #expect(platform.cancelledCueCount == 1)
+    #expect(platform.failedCount == 0)
+    #expect(platform.pastedTexts.isEmpty)
+
+    await coordinator.toggle()
+    #expect(coordinator.state == .recording)
+    coordinator.shutdown()
+  }
+
+  @Test("pastes the last transcript again")
+  func pasteLastTranscript() async {
+    let platform = FakePlatform()
+    let coordinator = Coordinator(
+      platform: platform,
+      transcriber: StubTranscriber(text: "hello world")
+    )
+
+    await coordinator.toggle()
+    await coordinator.toggle()
+    coordinator.pasteLastTranscript()
+
+    #expect(platform.pastedTexts == ["hello world", "hello world"])
+    #expect(platform.failedCount == 0)
+  }
+
+  @Test("pasting the last transcript before any fails")
+  func pasteLastTranscriptWithoutOne() {
+    let platform = FakePlatform()
+    let coordinator = Coordinator(platform: platform, transcriber: StubTranscriber(text: ""))
+
+    coordinator.pasteLastTranscript()
+
+    #expect(platform.pastedTexts.isEmpty)
+    #expect(platform.failedCount == 1)
+  }
+
+  @Test("cancel does nothing while idle")
+  func cancelWhileIdle() {
+    let platform = FakePlatform()
+    let coordinator = Coordinator(platform: platform, transcriber: StubTranscriber(text: ""))
+
+    #expect(!coordinator.isCancellable)
+    coordinator.cancel()
+
+    #expect(coordinator.state == .idle)
+    #expect(platform.stopCount == 0)
+    #expect(platform.cancelledCueCount == 0)
+  }
 }
 
 @MainActor
@@ -69,6 +156,7 @@ private final class FakePlatform: TranscriptionPlatform {
   var pastedTexts: [String] = []
   var startedCueCount = 0
   var stoppedCueCount = 0
+  var cancelledCueCount = 0
   var busyCount = 0
   var failedCount = 0
 
@@ -88,6 +176,7 @@ private final class FakePlatform: TranscriptionPlatform {
 
   func recordingStarted() { startedCueCount += 1 }
   func recordingStopped() { stoppedCueCount += 1 }
+  func recordingCancelled() { cancelledCueCount += 1 }
   func busy() { busyCount += 1 }
   func failed() { failedCount += 1 }
 }
@@ -138,6 +227,14 @@ private struct StubTranscriber: Transcriber {
       throw error
     }
     return text ?? ""
+  }
+}
+
+/// Never finishes on its own; only returns by throwing when cancelled.
+private struct HangingTranscriber: Transcriber {
+  func transcribe(_ recording: Recording) async throws -> String {
+    try await Task.sleep(for: .seconds(3600))
+    return ""
   }
 }
 

@@ -8,6 +8,9 @@ import Foundation
 @MainActor
 final class MacPlatform: NSObject, TranscriptionPlatform {
   private var capture: AudioCapture?
+  /// The user's clipboard, held while a paste's restore is pending, and which paste owns it.
+  private var pendingRestoreItems: [NSPasteboardItem]?
+  private var restoreGeneration = 0
 
   func startRecording() async throws -> String? {
     guard capture == nil else {
@@ -37,7 +40,12 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
 
   func paste(_ text: String) throws {
     let pasteboard = NSPasteboard.general
-    let savedItems = snapshot(of: pasteboard)
+    // A paste whose restore is still pending left our transcript on the pasteboard; keep the
+    // user's original items from then rather than snapshotting the transcript.
+    let savedItems = pendingRestoreItems ?? snapshot(of: pasteboard)
+    pendingRestoreItems = savedItems
+    restoreGeneration += 1
+    let generation = restoreGeneration
 
     // Mark the text as transient so clipboard managers skip it.
     let item = NSPasteboardItem()
@@ -55,6 +63,11 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
     // clipboard only after it has had time to do so, and only if nothing else wrote to it since.
     Task { @MainActor in
       try? await Task.sleep(for: Self.restoreDelay)
+      // A later paste took over the restore.
+      guard generation == self.restoreGeneration else {
+        return
+      }
+      self.pendingRestoreItems = nil
       guard pasteboard.changeCount == changeCount else {
         return
       }
@@ -71,6 +84,10 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
 
   func recordingStopped() {
     playSound(named: "Pop")
+  }
+
+  func recordingCancelled() {
+    playSound(named: "Bottle")
   }
 
   func busy() {
