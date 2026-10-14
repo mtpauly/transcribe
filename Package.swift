@@ -8,7 +8,7 @@ let package = Package(
     .macOS(.v13)
   ],
   products: [
-    .executable(name: "transcribe-sw", targets: ["Transcribe"])
+    .executable(name: "transcribe", targets: ["Transcribe"])
   ],
   targets: [
     .executableTarget(name: "Transcribe"),

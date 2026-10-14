@@ -7,7 +7,7 @@ final class AppLogger: @unchecked Sendable {
   init() throws {
     let logDirectory = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Logs", isDirectory: true)
-    let logURL = logDirectory.appendingPathComponent("Transcribe Swift Dev.log")
+    let logURL = logDirectory.appendingPathComponent("Transcribe.log")
 
     if !FileManager.default.fileExists(atPath: logURL.path) {
       guard

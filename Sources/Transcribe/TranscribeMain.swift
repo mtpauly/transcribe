@@ -53,7 +53,7 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         showAlert(
           title: "Accessibility permission required",
           message:
-            "Enable Transcribe Swift Dev under System Settings → Privacy & Security → Accessibility, then launch it again."
+            "Enable Transcribe under System Settings → Privacy & Security → Accessibility, then launch it again."
         )
         NSApp.terminate(nil)
         return

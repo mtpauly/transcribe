@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>Transcribe Swift Dev</string>
+    <string>Transcribe</string>
     <key>CFBundleExecutable</key>
-    <string>transcribe-sw</string>
+    <string>transcribe</string>
     <key>CFBundleIdentifier</key>
-    <string>com.mattpauly.transcribe.swift.dev</string>
+    <string>com.mattpauly.transcribe</string>
     <key>CFBundleName</key>
-    <string>Transcribe Swift Dev</string>
+    <string>Transcribe</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

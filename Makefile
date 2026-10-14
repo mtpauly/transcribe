@@ -1,11 +1,12 @@
-APP_NAME := Transcribe Swift Dev
-SWIFT_PRODUCT := transcribe-sw
-EXECUTABLE := transcribe-sw
+APP_NAME := Transcribe
+SWIFT_PRODUCT := transcribe
+EXECUTABLE := transcribe
+BUNDLE_ID := com.mattpauly.transcribe
 BUILD_DIR := build
 APP_BUNDLE := $(BUILD_DIR)/$(APP_NAME).app
 CONTENTS := $(APP_BUNDLE)/Contents
 ENTITLEMENTS := bundle/Transcribe.entitlements
-SIGN_IDENTITY ?= -
+SIGN_IDENTITY ?= Transcribe Dev
 SIGN_FLAGS ?= --timestamp=none
 SWIFT_FLAGS ?=
 
@@ -20,7 +21,7 @@ app:
 	mkdir -p "$(CONTENTS)/MacOS"
 	cp bundle/Info.plist "$(CONTENTS)/Info.plist"
 	cp ".build/release/$(SWIFT_PRODUCT)" "$(CONTENTS)/MacOS/$(EXECUTABLE)"
-	codesign --force --options runtime $(SIGN_FLAGS) --entitlements "$(ENTITLEMENTS)" --sign "$(SIGN_IDENTITY)" --identifier com.mattpauly.transcribe.swift.dev "$(APP_BUNDLE)"
+	codesign --force --options runtime $(SIGN_FLAGS) --entitlements "$(ENTITLEMENTS)" --sign "$(SIGN_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP_BUNDLE)"
 
 run: stop app
 	open -g "$(APP_BUNDLE)"
@@ -41,7 +42,7 @@ verify: app
 	plutil -lint "$(ENTITLEMENTS)"
 
 logs:
-	tail -f "$$HOME/Library/Logs/Transcribe Swift Dev.log"
+	tail -f "$$HOME/Library/Logs/$(APP_NAME).log"
 
 clean:
 	swift package clean

@@ -36,15 +36,15 @@ make test
 make run
 ```
 
-`make run` stops an existing Swift development instance before rebuilding. Stop it without rebuilding by running:
+`make run` stops an existing running instance before rebuilding. Stop it without rebuilding by running:
 
 ```sh
 make stop
 ```
 
-The development bundle is created at `build/Transcribe Swift Dev.app`. The first launch requests Accessibility permission. Grant **Transcribe Swift Dev** access under System Settings → Privacy & Security → Accessibility, then launch it again. Microphone permission is requested the first time recording starts.
+The bundle is created at `build/Transcribe.app`. The first launch requests Accessibility permission. Grant **Transcribe** access under System Settings → Privacy & Security → Accessibility, then launch it again. Microphone permission is requested the first time recording starts.
 
-The default build uses an ad-hoc signature. For more stable permissions across rebuilds, use a consistent signing certificate:
+Builds are signed with a code-signing certificate named `Transcribe Dev` so that macOS keeps the Accessibility grant across rebuilds. An ad-hoc signature changes with every build and forces a re-grant. Create the certificate once in Keychain Access → Certificate Assistant → Create a Certificate (identity type **Self-Signed Root**, certificate type **Code Signing**), then set its Trust → Code Signing to **Always Trust**. Choose **Always Allow** when `codesign` first asks to use the key. To sign with a different certificate:
 
 ```sh
 make run SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
@@ -62,7 +62,7 @@ Do not add the development build to Open at Login during normal development. Onc
 Logs are written to:
 
 ```text
-~/Library/Logs/Transcribe Swift Dev.log
+~/Library/Logs/Transcribe.log
 ```
 
 Follow them with:
