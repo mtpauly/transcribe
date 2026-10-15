@@ -23,7 +23,7 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
     let capture = AudioCapture()
     try capture.start()
     self.capture = capture
-    return defaultInputDeviceName()
+    return Self.defaultInputDeviceName()
   }
 
   func stopRecording() throws -> Recording {
@@ -112,7 +112,7 @@ final class MacPlatform: NSObject, TranscriptionPlatform {
   }
 
   /// AVAudioEngine records from the system default input, so report that device.
-  private func defaultInputDeviceName() -> String? {
+  static func defaultInputDeviceName() -> String? {
     var address = AudioObjectPropertyAddress(
       mSelector: kAudioHardwarePropertyDefaultInputDevice,
       mScope: kAudioObjectPropertyScopeGlobal,

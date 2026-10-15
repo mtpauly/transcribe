@@ -1,101 +1,64 @@
 # Transcribe
 
-This repository contains a small native macOS application built with Swift Package Manager:
+A small macOS app that records your voice, transcribes it with OpenRouter, and pastes the text into the focused app.
 
-1. Press Option+Space to begin recording.
-2. Press Option+Space again to stop.
-3. The app sends the recorded audio, held in memory as WAV, to OpenRouter.
-4. The resulting text is pasted into the focused application.
+| Key | Action |
+|---|---|
+| Option+Space | Start / stop recording; the transcript is pasted where your cursor is |
+| Escape | Cancel while recording or transcribing |
+| Option+Shift+V | Paste the last transcript again |
 
-Press Escape while recording or waiting on OpenRouter to cancel; nothing is pasted. Escape passes through to other apps at all other times.
+Your clipboard is restored after pasting. The app has no Dock icon or window; a menu-bar icon shows its state, and clicking it gives recording controls, the last transcript, config and log paths, and Reload Config.
 
-Press Option+Shift+V to paste the most recent transcript again. It is kept in memory only, so it is gone after the app quits.
+## Setup
 
-The app has no Dock icon, window, menu-bar item, helper, LaunchAgent, login item, or installer. It runs as one signed process and uses short system sounds for recording and error feedback.
-
-## Requirements
-
-- macOS 13 or later
-- Swift 6.0 or later
-- Xcode Command Line Tools
-- An OpenRouter API key
-
-The Xcode application and an `.xcodeproj` are not required for development.
-
-## Configuration
-
-Create the configuration file if it does not already exist:
+Requires macOS 13+, Swift 6+, Xcode Command Line Tools, and an OpenRouter API key.
 
 ```sh
 mkdir -p "$HOME/Library/Application Support/Transcribe"
 install -m 600 config.example.json "$HOME/Library/Application Support/Transcribe/config.json"
 ```
 
-Then edit `config.json` and replace `replace-me` with the API key. The optional `model` field selects the OpenRouter transcription model.
+Edit `config.json`:
 
-Set `"save_recordings": true` to keep a copy of every recording as a WAV file. Files go to `~/Library/Application Support/Transcribe/recordings/` unless `recordings_directory` names another folder (`~` is expanded). A recording is saved as soon as it stops, so it is kept even when transcription fails. Saved recordings are never deleted automatically.
+| Key | Meaning |
+|---|---|
+| `openrouter_api_key` | Required |
+| `model` | OpenRouter transcription model (default `microsoft/mai-transcribe-2`) |
+| `save_recordings` | `true` to keep every recording as a WAV file |
+| `recordings_directory` | Where to save them (default `recordings/` next to `config.json`) |
+
+Use **Reload Config** in the menu-bar menu to apply changes without restarting.
+
+Builds are signed with a certificate named `Transcribe Dev` so macOS keeps the Accessibility grant across rebuilds. Create it once in Keychain Access → Certificate Assistant → Create a Certificate (**Self-Signed Root**, **Code Signing**), set Trust → Code Signing to **Always Trust**, or pass `SIGN_IDENTITY="…"` to `make`.
 
 ## Build and run
 
 ```sh
-make test
-make run
+make test     # run tests
+make run      # stop any running instance, rebuild, launch
+make stop     # stop without rebuilding
+make verify   # check signature, entitlements, and plists
+make logs     # follow ~/Library/Logs/Transcribe.log
+make clean    # remove build output
 ```
 
-`make run` stops an existing running instance before rebuilding. Stop it without rebuilding by running:
+On first launch, grant **Transcribe** Accessibility access in System Settings → Privacy & Security, then launch again. Microphone access is requested on first recording.
 
-```sh
-make stop
-```
+## Feedback
 
-The bundle is created at `build/Transcribe.app`. The first launch requests Accessibility permission. Grant **Transcribe** access under System Settings → Privacy & Security → Accessibility, then launch it again. Microphone permission is requested the first time recording starts.
+| Sound | Meaning |
+|---|---|
+| Tink | Recording started |
+| Pop | Recording stopped; transcribing |
+| Funk | Ignored because busy |
+| Basso | Something failed; see the log |
 
-Builds are signed with a code-signing certificate named `Transcribe Dev` so that macOS keeps the Accessibility grant across rebuilds. An ad-hoc signature changes with every build and forces a re-grant. Create the certificate once in Keychain Access → Certificate Assistant → Create a Certificate (identity type **Self-Signed Root**, certificate type **Code Signing**), then set its Trust → Code Signing to **Always Trust**. Choose **Always Allow** when `codesign` first asks to use the key. To sign with a different certificate:
+The log includes the full text of every transcript.
 
-```sh
-make run SIGN_IDENTITY="Apple Development: Your Name (TEAMID)"
-```
+## Layout
 
-Do not add the development build to Open at Login during normal development. Once the prototype is stable, copy the bundle to a fixed location and add that copy manually.
-
-## Feedback and logs
-
-- Tink: recording started
-- Pop: recording stopped and transcription began
-- Funk: input ignored because the application is busy
-- Basso: an operation failed
-
-Logs are written to:
-
-```text
-~/Library/Logs/Transcribe.log
-```
-
-Follow them with:
-
-```sh
-make logs
-```
-
-## Architecture
-
-- `Sources/Transcribe`: one executable target containing the workflow and macOS integration
-- `Tests/TranscribeTests`: focused tests for state transitions, configuration, and request encoding
-- `bundle`: application metadata and the Hardened Runtime audio-input entitlement
-- `Makefile`: builds the SwiftPM executable, assembles the `.app`, and signs it
-
-The keyboard event-tap callback only recognizes and consumes Option+Space, Option+Shift+V, and Escape while a recording or transcription is in progress, before scheduling the workflow on the main actor. It performs no audio, file, pasteboard, or network work.
-
-The executable initializes `NSApplication` even though no interface is displayed. A future `NSStatusItem` menu can therefore be added without changing the coordinator architecture.
-
-The original Python prototype remains in `transcribe.py` for reference.
-
-## Intentionally omitted
-
-- Menu-bar interface and settings
-- Automatic login registration
-- Keychain storage
-- Configurable shortcuts or microphones
-- Streaming, retry logic, history, or local models
-- Clipboard restoration (the transcription remains on the clipboard after pasting)
-- Distribution signing, notarization, Homebrew cask, and automatic updates
+- `Sources/Transcribe`: the app
+- `Tests/TranscribeTests`: tests
+- `bundle`: Info.plist and entitlements
+- `Makefile`: builds, bundles, and signs the `.app`

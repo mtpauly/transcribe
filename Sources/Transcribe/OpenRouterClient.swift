@@ -38,6 +38,7 @@ struct OpenRouterClient: Transcriber {
 
   func transcribe(_ recording: Recording) async throws -> String {
     let request = try makeRequest(audio: recording.audio, format: recording.format)
+    log("transcription request sent (model \(model))")
     var (data, response) = try await sendHTTP(request)
     var retries = 0
     while response.statusCode == 429 && retries < Self.maxRateLimitRetries {

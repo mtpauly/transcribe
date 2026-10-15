@@ -106,6 +106,30 @@ struct CoordinatorTests {
     coordinator.shutdown()
   }
 
+  @Test("uses updated dependencies for the next recording")
+  func updateDependencies() async {
+    let platform = FakePlatform()
+    let oldTranscriber = StubTranscriber(text: "old")
+    let oldArchive = FakeArchive()
+    let coordinator = Coordinator(
+      platform: platform,
+      transcriber: oldTranscriber,
+      archive: oldArchive
+    )
+    let newTranscriber = StubTranscriber(text: "new")
+    let newArchive = FakeArchive()
+
+    coordinator.update(transcriber: newTranscriber, archive: newArchive)
+    await coordinator.toggle()
+    await coordinator.toggle()
+
+    #expect(oldTranscriber.received.recordings.isEmpty)
+    #expect(oldArchive.saved.recordings.isEmpty)
+    #expect(newTranscriber.received.recordings == [FakePlatform.recording])
+    #expect(newArchive.saved.recordings == [FakePlatform.recording])
+    #expect(platform.pastedTexts == ["new"])
+  }
+
   @Test("pastes the last transcript again")
   func pasteLastTranscript() async {
     let platform = FakePlatform()

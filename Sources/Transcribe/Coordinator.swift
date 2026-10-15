@@ -28,7 +28,12 @@ final class Coordinator {
     case transcribing
   }
 
-  private(set) var state: State = .idle
+  private(set) var state: State = .idle {
+    didSet {
+      if state != oldValue { onStateChange?(state) }
+    }
+  }
+  var onStateChange: ((State) -> Void)?
   private var transcription: Task<String, any Error>?
   private(set) var lastTranscript: String?
 
@@ -38,8 +43,8 @@ final class Coordinator {
   }
 
   private let platform: any TranscriptionPlatform
-  private let transcriber: any Transcriber
-  private let archive: (any RecordingArchive)?
+  private var transcriber: any Transcriber
+  private var archive: (any RecordingArchive)?
   private let log: @Sendable (String) -> Void
 
   init(
@@ -52,6 +57,13 @@ final class Coordinator {
     self.transcriber = transcriber
     self.archive = archive
     self.log = log
+  }
+
+  /// Swaps in new dependencies, e.g. after a config reload. A transcription already
+  /// in flight finishes with the ones it started with.
+  func update(transcriber: any Transcriber, archive: (any RecordingArchive)?) {
+    self.transcriber = transcriber
+    self.archive = archive
   }
 
   func toggle() async {

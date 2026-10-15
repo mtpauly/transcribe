@@ -3,11 +3,12 @@ import Foundation
 final class AppLogger: @unchecked Sendable {
   private let lock = NSLock()
   private let fileHandle: FileHandle
+  let logURL: URL
 
   init() throws {
     let logDirectory = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent("Library/Logs", isDirectory: true)
-    let logURL = logDirectory.appendingPathComponent("Transcribe.log")
+    logURL = logDirectory.appendingPathComponent("Transcribe.log")
 
     if !FileManager.default.fileExists(atPath: logURL.path) {
       guard

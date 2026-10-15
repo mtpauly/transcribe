@@ -27,6 +27,9 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   private let logger: AppLogger
   private var coordinator: Coordinator?
   private var hotkeyMonitor: HotkeyMonitor?
+  private var statusItem: StatusItem?
+  private var platform: MacPlatform?
+  private var configurationURL: URL?
 
   init(logger: AppLogger) {
     self.logger = logger
@@ -60,17 +63,7 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
       }
 
       let platform = MacPlatform()
-      let client = OpenRouterClient(
-        apiKey: configuration.openRouterAPIKey,
-        model: configuration.model,
-        log: logger.write
-      )
-      let archive = configuration.recordingsDirectory.map {
-        DirectoryRecordingArchive(directory: $0, log: logger.write)
-      }
-      if let archive {
-        logger.write("saving recordings to \(archive.directory.path)")
-      }
+      let (client, archive) = makeDependencies(for: configuration)
       let coordinator = Coordinator(
         platform: platform,
         transcriber: client,
@@ -100,10 +93,22 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
       )
       try monitor.install()
 
+      let statusItem = StatusItem(
+        coordinator: coordinator,
+        configuration: configuration,
+        configurationURL: configurationURL,
+        logURL: logger.logURL,
+        reloadConfiguration: { [weak self] in self?.reloadConfiguration() }
+      )
+      coordinator.onStateChange = { statusItem.show($0) }
+
       self.coordinator = coordinator
       hotkeyMonitor = monitor
+      self.statusItem = statusItem
+      self.platform = platform
+      self.configurationURL = configurationURL
       logger.write(
-        "ready; press Option+Space to start or stop recording, Escape to cancel, Option+Shift+V to paste the last transcript (pid \(ProcessInfo.processInfo.processIdentifier))"
+        "ready; model \(configuration.model); press Option+Space to start or stop recording, Escape to cancel, Option+Shift+V to paste the last transcript (pid \(ProcessInfo.processInfo.processIdentifier))"
       )
     } catch {
       logger.write("fatal error: \(error.localizedDescription)")
@@ -114,6 +119,41 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
   func applicationWillTerminate(_ notification: Notification) {
     coordinator?.shutdown()
     logger.write("stopped")
+  }
+
+  /// Rereads config.json and swaps in a new client and archive. On failure the
+  /// current configuration stays in effect.
+  private func reloadConfiguration() {
+    guard let configurationURL, let coordinator, let statusItem else { return }
+    let configuration: Configuration
+    do {
+      configuration = try Configuration.load(from: configurationURL)
+    } catch {
+      logger.write("error: reload config: \(error.localizedDescription)")
+      platform?.failed()
+      return
+    }
+    let (client, archive) = makeDependencies(for: configuration)
+    coordinator.update(transcriber: client, archive: archive)
+    statusItem.configuration = configuration
+    logger.write("config reloaded; model \(configuration.model)")
+  }
+
+  private func makeDependencies(
+    for configuration: Configuration
+  ) -> (OpenRouterClient, DirectoryRecordingArchive?) {
+    let client = OpenRouterClient(
+      apiKey: configuration.openRouterAPIKey,
+      model: configuration.model,
+      log: logger.write
+    )
+    let archive = configuration.recordingsDirectory.map {
+      DirectoryRecordingArchive(directory: $0, log: logger.write)
+    }
+    if let archive {
+      logger.write("saving recordings to \(archive.directory.path)")
+    }
+    return (client, archive)
   }
 
   private func showAlert(title: String, message: String) {
