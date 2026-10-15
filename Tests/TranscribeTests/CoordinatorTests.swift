@@ -157,6 +157,62 @@ struct CoordinatorTests {
     #expect(platform.failedCount == 1)
   }
 
+  @Test("records stats for a successful transcription")
+  func statsSuccess() async throws {
+    let platform = FakePlatform()
+    let stats = FakeStats()
+    let clock = SteppingClock()
+    let coordinator = Coordinator(
+      platform: platform,
+      transcriber: StubTranscriber(text: "hello there world"),
+      stats: stats,
+      now: clock.next
+    )
+
+    await coordinator.toggle()
+    await coordinator.toggle()
+
+    let entry = try #require(stats.entries.only)
+    #expect(entry.startedAt == SteppingClock.start)
+    #expect(entry.audioMilliseconds == 1000)
+    #expect(entry.audioBytes == FakePlatform.recording.audio.count)
+    #expect(entry.latencyMilliseconds == 1000)
+    #expect(entry.wordCount == 3)
+    #expect(entry.characterCount == 17)
+    #expect(entry.model == "stub-model")
+    #expect(entry.outcome == .success)
+  }
+
+  @Test("records stats for failed and cancelled transcriptions")
+  func statsFailures() async {
+    let stats = FakeStats()
+    let failing = Coordinator(
+      platform: FakePlatform(),
+      transcriber: StubTranscriber(error: StubError.failed),
+      stats: stats
+    )
+    await failing.toggle()
+    await failing.toggle()
+
+    let cancelledRecording = Coordinator(
+      platform: FakePlatform(), transcriber: StubTranscriber(text: ""), stats: stats)
+    await cancelledRecording.toggle()
+    cancelledRecording.cancel()
+
+    let cancelledTranscription = Coordinator(
+      platform: FakePlatform(), transcriber: HangingTranscriber(), stats: stats)
+    await cancelledTranscription.toggle()
+    let stopping = Task { await cancelledTranscription.toggle() }
+    while cancelledTranscription.state != .transcribing {
+      await Task.yield()
+    }
+    cancelledTranscription.cancel()
+    await stopping.value
+
+    #expect(stats.entries.map(\.outcome) == [.error, .cancelled, .cancelled])
+    #expect(stats.entries.allSatisfy { $0.wordCount == nil && $0.latencyMilliseconds == nil })
+  }
+
   @Test("cancel does nothing while idle")
   func cancelWhileIdle() {
     let platform = FakePlatform()
@@ -230,7 +286,43 @@ private struct FakeArchive: RecordingArchive {
   }
 }
 
+private final class FakeStats: StatsRecorder, @unchecked Sendable {
+  private let lock = NSLock()
+  private var items: [TranscriptionStats] = []
+
+  var entries: [TranscriptionStats] {
+    lock.lock()
+    defer { lock.unlock() }
+    return items
+  }
+
+  func record(_ entry: TranscriptionStats) {
+    lock.lock()
+    defer { lock.unlock() }
+    items.append(entry)
+  }
+}
+
+/// Returns a time one second later on each call.
+private final class SteppingClock: @unchecked Sendable {
+  static let start = Date(timeIntervalSince1970: 1_760_434_262)
+  private let lock = NSLock()
+  private var current = start
+
+  @Sendable func next() -> Date {
+    lock.lock()
+    defer { lock.unlock() }
+    defer { current = current.addingTimeInterval(1) }
+    return current
+  }
+}
+
+extension Array {
+  fileprivate var only: Element? { count == 1 ? first : nil }
+}
+
 private struct StubTranscriber: Transcriber {
+  let model = "stub-model"
   let text: String?
   let error: StubError?
   let received = RecordingLog()
@@ -256,6 +348,8 @@ private struct StubTranscriber: Transcriber {
 
 /// Never finishes on its own; only returns by throwing when cancelled.
 private struct HangingTranscriber: Transcriber {
+  let model = "hanging-model"
+
   func transcribe(_ recording: Recording) async throws -> String {
     try await Task.sleep(for: .seconds(3600))
     return ""

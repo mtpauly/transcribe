@@ -64,10 +64,12 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
       let platform = MacPlatform()
       let (client, archive) = makeDependencies(for: configuration)
+      let stats = openStats(configurationURL: configurationURL)
       let coordinator = Coordinator(
         platform: platform,
         transcriber: client,
         archive: archive,
+        stats: stats,
         log: logger.write
       )
       let monitor = HotkeyMonitor(
@@ -98,6 +100,7 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
         configuration: configuration,
         configurationURL: configurationURL,
         logURL: logger.logURL,
+        stats: stats,
         reloadConfiguration: { [weak self] in self?.reloadConfiguration() }
       )
       coordinator.onStateChange = { statusItem.show($0) }
@@ -137,6 +140,17 @@ private final class ApplicationDelegate: NSObject, NSApplicationDelegate {
     coordinator.update(transcriber: client, archive: archive)
     statusItem.configuration = configuration
     logger.write("config reloaded; model \(configuration.model)")
+  }
+
+  /// Stats are optional: if the database can't be opened, transcription still works.
+  private func openStats(configurationURL: URL) -> SQLiteStatsStore? {
+    let url = SQLiteStatsStore.defaultURL(configurationURL: configurationURL)
+    do {
+      return try SQLiteStatsStore(url: url, log: logger.write)
+    } catch {
+      logger.write("error: open stats database: \(error.localizedDescription)")
+      return nil
+    }
   }
 
   private func makeDependencies(

@@ -45,17 +45,26 @@ final class Coordinator {
   private let platform: any TranscriptionPlatform
   private var transcriber: any Transcriber
   private var archive: (any RecordingArchive)?
+  private let stats: (any StatsRecorder)?
+  private let now: @Sendable () -> Date
   private let log: @Sendable (String) -> Void
+  private var recordingStartedAt: Date?
+  /// The recording behind the in-flight transcription, for its stats entry.
+  private var pending: PendingTranscription?
 
   init(
     platform: any TranscriptionPlatform,
     transcriber: any Transcriber,
     archive: (any RecordingArchive)? = nil,
+    stats: (any StatsRecorder)? = nil,
+    now: @escaping @Sendable () -> Date = Date.init,
     log: @escaping @Sendable (String) -> Void = { _ in }
   ) {
     self.platform = platform
     self.transcriber = transcriber
     self.archive = archive
+    self.stats = stats
+    self.now = now
     self.log = log
   }
 
@@ -81,15 +90,23 @@ final class Coordinator {
   func cancel() {
     switch state {
     case .recording:
+      var recording: Recording?
       do {
-        _ = try platform.stopRecording()
+        recording = try platform.stopRecording()
       } catch {
         log("error stopping recording during cancel: \(error.localizedDescription)")
+      }
+      if let pending = finishRecording(recording) {
+        record(pending, .cancelled)
       }
       log("recording cancelled")
     case .transcribing:
       transcription?.cancel()
       transcription = nil
+      if let pending {
+        record(pending, .cancelled)
+      }
+      pending = nil
       log("transcription cancelled")
     case .idle, .starting:
       return
@@ -130,6 +147,7 @@ final class Coordinator {
     do {
       let device = try await platform.startRecording()
       state = .recording
+      recordingStartedAt = now()
       log("recording started on \(device ?? "unknown input device")")
       platform.recordingStarted()
     } catch {
@@ -144,6 +162,9 @@ final class Coordinator {
       recording = try platform.stopRecording()
     } catch {
       state = .idle
+      if let pending = finishRecording(nil) {
+        record(pending, .error)
+      }
       reportFailure("stop recording", error: error)
       return
     }
@@ -154,32 +175,98 @@ final class Coordinator {
     archive?.save(recording)
 
     let transcriber = transcriber
+    let pending = finishRecording(recording)
+    self.pending = pending
     let task = Task { try await transcriber.transcribe(recording) }
     transcription = task
+    let text: String
     do {
-      let text = try await task.value
-      // Cancelled or superseded while waiting; drop the result.
-      guard transcription == task else {
-        return
-      }
-      transcription = nil
-      lastTranscript = text
-      log("transcribed text: \(text)")
-      try platform.paste(text)
-      log("transcription pasted")
-      state = .idle
+      text = try await task.value
     } catch {
       guard transcription == task else {
         return
       }
       transcription = nil
+      self.pending = nil
       state = .idle
+      if let pending {
+        record(pending, .error)
+      }
       reportFailure("transcribe recording", error: error)
+      return
     }
+    // Cancelled or superseded while waiting; drop the result.
+    guard transcription == task else {
+      return
+    }
+    let receivedAt = now()
+    transcription = nil
+    self.pending = nil
+    lastTranscript = text
+    log("transcribed text: \(text)")
+    do {
+      try platform.paste(text)
+      log("transcription pasted")
+      state = .idle
+      if let pending {
+        record(pending, .success, transcript: (text, receivedAt))
+      }
+    } catch {
+      state = .idle
+      if let pending {
+        record(pending, .error, transcript: (text, receivedAt))
+      }
+      reportFailure("paste transcript", error: error)
+    }
+  }
+
+  /// Captures what's known when a recording ends; nil if it never started.
+  private func finishRecording(_ recording: Recording?) -> PendingTranscription? {
+    defer { recordingStartedAt = nil }
+    guard let startedAt = recordingStartedAt else {
+      return nil
+    }
+    let stoppedAt = now()
+    return PendingTranscription(
+      startedAt: startedAt,
+      stoppedAt: stoppedAt,
+      audioBytes: recording?.audio.count,
+      model: transcriber.model
+    )
+  }
+
+  private func record(
+    _ pending: PendingTranscription, _ outcome: TranscriptionStats.Outcome,
+    transcript: (text: String, receivedAt: Date)? = nil
+  ) {
+    stats?.record(
+      TranscriptionStats(
+        startedAt: pending.startedAt,
+        audioMilliseconds: Self.milliseconds(from: pending.startedAt, to: pending.stoppedAt),
+        audioBytes: pending.audioBytes,
+        latencyMilliseconds: transcript.map {
+          Self.milliseconds(from: pending.stoppedAt, to: $0.receivedAt)
+        },
+        wordCount: transcript.map { TranscriptionStats.wordCount(of: $0.text) },
+        characterCount: transcript?.text.count,
+        model: pending.model,
+        outcome: outcome
+      ))
+  }
+
+  private static func milliseconds(from start: Date, to end: Date) -> Int {
+    Int((end.timeIntervalSince(start) * 1000).rounded())
   }
 
   private func reportFailure(_ operation: String, error: any Error) {
     log("error: \(operation): \(error.localizedDescription)")
     platform.failed()
   }
+}
+
+private struct PendingTranscription {
+  let startedAt: Date
+  let stoppedAt: Date
+  let audioBytes: Int?
+  let model: String
 }

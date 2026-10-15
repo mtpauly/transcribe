@@ -56,6 +56,15 @@ On first launch, grant **Transcribe** Accessibility access in System Settings â†
 
 The log includes the full text of every transcript.
 
+## Stats
+
+Every finished recording (transcribed, cancelled, or failed) adds a row to `stats.db` next to `config.json`: start time, audio length and size, transcription latency, word and character counts, model, and outcome. Transcript text is not stored. The menu shows today's and all-time totals; query it directly with:
+
+```sh
+sqlite3 "$HOME/Library/Application Support/Transcribe/stats.db" \
+  "SELECT date(started_at, 'localtime') AS day, COUNT(*), SUM(word_count) FROM transcriptions WHERE outcome = 'success' GROUP BY day"
+```
+
 ## Layout
 
 - `Sources/Transcribe`: the app

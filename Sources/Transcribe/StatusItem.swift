@@ -8,6 +8,7 @@ final class StatusItem: NSObject, NSMenuDelegate {
   var configuration: Configuration
   private let configurationURL: URL
   private let logURL: URL
+  private let stats: SQLiteStatsStore?
   private let reloadConfiguration: () -> Void
 
   init(
@@ -15,12 +16,14 @@ final class StatusItem: NSObject, NSMenuDelegate {
     configuration: Configuration,
     configurationURL: URL,
     logURL: URL,
+    stats: SQLiteStatsStore?,
     reloadConfiguration: @escaping () -> Void
   ) {
     self.coordinator = coordinator
     self.configuration = configuration
     self.configurationURL = configurationURL
     self.logURL = logURL
+    self.stats = stats
     self.reloadConfiguration = reloadConfiguration
     super.init()
     let menu = NSMenu()
@@ -75,10 +78,24 @@ final class StatusItem: NSObject, NSMenuDelegate {
     if let directory = configuration.recordingsDirectory {
       menu.addItem(copyPath("Copy Recordings Folder Path", directory))
     }
+    if let stats {
+      menu.addItem(copyPath("Copy Stats Database Path", stats.url))
+    }
     menu.addItem(.separator())
 
     menu.addItem(action("Reload Config", #selector(reloadConfig)))
     menu.addItem(.separator())
+
+    if let stats {
+      let startOfToday = Calendar.current.startOfDay(for: Date())
+      do {
+        menu.addItem(info("Today: \(Self.describe(try stats.summary(since: startOfToday)))"))
+        menu.addItem(info("All time: \(Self.describe(try stats.summary()))"))
+      } catch {
+        menu.addItem(info("Stats unavailable"))
+      }
+      menu.addItem(.separator())
+    }
 
     menu.addItem(info("Model: \(configuration.model)"))
     menu.addItem(info("Microphone: \(MacPlatform.defaultInputDeviceName() ?? "Unknown")"))
@@ -158,6 +175,15 @@ final class StatusItem: NSObject, NSMenuDelegate {
     case .recording: "Recording"
     case .transcribing: "Transcribing"
     }
+  }
+
+  /// E.g. "12 transcriptions · 1,084 words · 23 min".
+  static func describe(_ summary: StatsSummary) -> String {
+    let count = summary.transcriptions.formatted()
+    let noun = summary.transcriptions == 1 ? "transcription" : "transcriptions"
+    let words = summary.words.formatted()
+    let minutes = Int((Double(summary.audioMilliseconds) / 60_000).rounded())
+    return "\(count) \(noun) · \(words) words · \(minutes.formatted()) min"
   }
 
   private static func preview(_ text: String) -> String {

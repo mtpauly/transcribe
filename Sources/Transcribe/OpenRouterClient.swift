@@ -1,6 +1,7 @@
 import Foundation
 
 protocol Transcriber: Sendable {
+  var model: String { get }
   func transcribe(_ recording: Recording) async throws -> String
 }
 
@@ -17,7 +18,7 @@ struct OpenRouterClient: Transcriber {
   static let maxRetryDelay: Duration = .seconds(5)
 
   private let apiKey: String
-  private let model: String
+  let model: String
   private let send: Send
   private let sleep: Sleep
   private let log: @Sendable (String) -> Void
